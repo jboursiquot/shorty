@@ -1,0 +1,145 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Shorty
+
+Parameters:
+  logLevel:
+    Type: String
+    Default: ERROR
+  stage:
+    Type: String
+    Default: prod
+
+Resources:
+
+  ShortenerFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [lambda.amazonaws.com]
+            Action: ["sts:AssumeRole"]
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSLambdaExecute
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaRole
+        - arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess
+
+  ShortenerFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: go1.x
+    Properties:
+      Role: !GetAtt ShortenerFunctionRole.Arn
+      Runtime: provided.al2
+      CodeUri: build/shortener/bootstrap.zip
+      Handler: bootstrap
+      Tracing: Active
+      MemorySize: 128
+      Timeout: 15
+      Environment:
+        Variables:
+          LOG_LEVEL: !Ref logLevel
+          STAGE: !Ref stage
+          BASE_URL: !Sub "https://${API}.execute-api.${AWS::Region}.amazonaws.com/${stage}"
+
+  ShortenerFunctionInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ShortenerFunction
+      Action: "lambda:InvokeFunction"
+      Principal: apigateway.amazonaws.com
+
+  API:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: shorty-api
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowMethods:
+          - GET
+        AllowOrigins:
+          - '*'
+        AllowHeaders:
+          - "*"
+        MaxAge: 300
+
+  Integration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref API
+      PayloadFormatVersion: '1.0'
+      IntegrationType: AWS_PROXY
+      IntegrationUri:
+        Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ShortenerFunction.Arn}/invocations
+      IntegrationMethod: POST
+      TimeoutInMillis: 15000
+
+  Route:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref API
+      RouteKey: $default
+      AuthorizationType: NONE
+      Target: !Join
+        - /
+        - - integrations
+          - !Ref Integration
+          
+  Deployment:
+    DependsOn:
+      - Route
+    Type: AWS::ApiGatewayV2::Deployment
+    Properties:
+      ApiId: !Ref API
+
+  Stage:
+    Type: 'AWS::ApiGatewayV2::Stage'
+    Properties:
+      AutoDeploy: true
+      StageName: !Ref stage
+      DeploymentId: !Ref Deployment
+      ApiId: !Ref API
+      DefaultRouteSettings:
+        DetailedMetricsEnabled: true
+        ThrottlingBurstLimit: 10
+        ThrottlingRateLimit: 10
+
+  # DomainName:
+  #   Type: AWS::ApiGatewayV2::DomainName
+  #   Properties:
+  #     DomainName: !Ref domain
+  #     DomainNameConfigurations:
+  #       - EndpointType: REGIONAL
+  #         CertificateArn: !Ref CertificateArn
+
+  # ApiMapping:
+  #   Type: 'AWS::ApiGatewayV2::ApiMapping'
+  #   Properties:
+  #     DomainName: !Ref DomainName
+  #     ApiId: !Ref API
+  #     Stage: !Ref Stage
+
+  # HostedZone:
+  #   Type: "AWS::Route53::HostedZone"
+  #   Properties:
+  #     Name: !Ref domain
+
+  # RecordSetGroup:
+  #   Type: AWS::Route53::RecordSetGroup
+  #   Properties:
+  #     HostedZoneId: !Ref HostedZone
+  #     RecordSets:
+  #       - Name: !Ref domain
+  #         Type: A
+  #         AliasTarget:
+  #           DNSName: !GetAtt DomainName.RegionalDomainName
+  #           HostedZoneId: !GetAtt DomainName.RegionalHostedZoneId
+
+Outputs:
+  ApiEndpoint:
+    Description: "API endpoint"
+    Value: !Sub "https://${API}.execute-api.${AWS::Region}.amazonaws.com/prod"
