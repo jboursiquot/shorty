@@ -1,42 +1,41 @@
 package shorty
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"sync"
 )
 
 type Shortener struct {
-	urls map[string]string
-	mu   sync.RWMutex
+	db *DB
 }
 
-func NewShortener() *Shortener {
+func NewShortener(db *DB) *Shortener {
 	return &Shortener{
-		urls: make(map[string]string),
+		db: db,
 	}
 }
 
-func (s *Shortener) Shorten(url string) string {
-	if u := s.Resolve(url); u != "" {
-		return u
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+func (s *Shortener) Shorten(ctx context.Context, url string) string {
 	hash := sha256.Sum256([]byte(url))
 	key := base64.URLEncoding.EncodeToString(hash[:])[:8]
-	s.urls[key] = url
+
+	su := ShortenedURL{
+		Key: key,
+		URL: url,
+	}
+
+	if err := s.db.Put(ctx, su); err != nil {
+		return ""
+	}
+
 	return key
 }
 
-func (s *Shortener) Resolve(key string) string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if existing, ok := s.urls[key]; ok {
-		return existing
+func (s *Shortener) Resolve(ctx context.Context, key string) string {
+	if su, err := s.db.Get(ctx, key); err == nil && su != nil {
+		return su.URL
 	}
+
 	return ""
 }

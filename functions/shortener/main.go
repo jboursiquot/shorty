@@ -8,13 +8,15 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	ginadapter "github.com/awslabs/aws-lambda-go-api-proxy/gin"
+	"github.com/jboursiquot/shorty"
 )
 
 func main() {
 	runAsLambda := flag.Bool("run-as-lambda", true, "Run as a lambda function")
 	flag.Parse()
 
-	router, err := newRouter(&cfg)
+	shortener := shorty.NewShortener(db)
+	router, err := newRouter(&cfg, shortener)
 	if err != nil {
 		log.Error(err.Error())
 		os.Exit(1)

@@ -13,6 +13,17 @@ Parameters:
 
 Resources:
 
+  Table:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+
   ShortenerFunctionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -27,6 +38,16 @@ Resources:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
         - arn:aws:iam::aws:policy/service-role/AWSLambdaRole
         - arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-policy
+          PolicyDocument:
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "dynamodb:*"
+                Resource:
+                  - !GetAtt Table.Arn
+                  - !Join ["/", [!GetAtt Table.Arn, "index", "*"]]
 
   ShortenerFunction:
     Type: AWS::Serverless::Function
@@ -45,6 +66,7 @@ Resources:
           LOG_LEVEL: !Ref logLevel
           STAGE: !Ref stage
           BASE_URL: !Sub "https://${API}.execute-api.${AWS::Region}.amazonaws.com/${stage}"
+          TABLE_NAME: !Ref Table
 
   ShortenerFunctionInvokePermission:
     Type: AWS::Lambda::Permission
@@ -56,7 +78,7 @@ Resources:
   API:
     Type: AWS::ApiGatewayV2::Api
     Properties:
-      Name: shorty-api
+      Name: !Sub ${AWS::StackName}-api
       ProtocolType: HTTP
       CorsConfiguration:
         AllowMethods:
@@ -88,11 +110,10 @@ Resources:
         - /
         - - integrations
           - !Ref Integration
-          
+
   Deployment:
-    DependsOn:
-      - Route
     Type: AWS::ApiGatewayV2::Deployment
+    DependsOn: [Route]
     Properties:
       ApiId: !Ref API
 
@@ -101,7 +122,6 @@ Resources:
     Properties:
       AutoDeploy: true
       StageName: !Ref stage
-      DeploymentId: !Ref Deployment
       ApiId: !Ref API
       DefaultRouteSettings:
         DetailedMetricsEnabled: true
@@ -143,3 +163,6 @@ Outputs:
   ApiEndpoint:
     Description: "API endpoint"
     Value: !Sub "https://${API}.execute-api.${AWS::Region}.amazonaws.com/prod"
+  ApiId:
+    Description: "API ID"
+    Value: !Ref API

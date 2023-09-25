@@ -43,19 +43,6 @@ local-api-shorten:
 local-api-resolve:
 	curl -i http://localhost:8080/bn9Y9rho
 
-ENDPOINT ?= $(shell aws cloudformation describe-stacks \
-	--stack-name $(STACK_NAME) \
-	--query 'Stacks[].Outputs[?OutputKey==`ApiEndpoint`].OutputValue' \
-	--output text)
-.PHONY: remote-api-shorten
-remote-api-shorten:
-	curl -i $(ENDPOINT)/v1/shorten \
-		-d '{"url":"https://go.dev"}'
-
-.PHONY: remote-api-resolve
-remote-api-resolve:
-	curl -i $(ENDPOINT)/bn9Y9rho
-
 ## Deploy as an AWS Lambda function
 
 bucket:
@@ -96,6 +83,7 @@ validate:
 
 destroy: clean
 	-aws cloudformation delete-stack --stack-name $(STACK_NAME)
+	-aws cloudformation wait stack-delete-complete --stack-name $(STACK_NAME)
 
 describe:
 	aws cloudformation describe-stacks \
@@ -105,3 +93,16 @@ outputs:
 	aws cloudformation describe-stacks \
 		--stack-name $(STACK_NAME) \
 		--query 'Stacks[].Outputs'
+
+ENDPOINT ?= $(shell aws cloudformation describe-stacks \
+	--stack-name $(STACK_NAME) \
+	--query 'Stacks[].Outputs[?OutputKey==`ApiEndpoint`].OutputValue' \
+	--output text)
+.PHONY: remote-api-shorten
+remote-api-shorten:
+	curl -i $(ENDPOINT)/v1/shorten \
+		-d '{"url":"https://go.dev"}'
+
+.PHONY: remote-api-resolve
+remote-api-resolve:
+	curl -i $(ENDPOINT)/bn9Y9rho

@@ -16,7 +16,7 @@ type Router struct {
 	shortener *shorty.Shortener
 }
 
-func newRouter(cfg *config) (*Router, error) {
+func newRouter(cfg *config, shortener *shorty.Shortener) (*Router, error) {
 	u, err := url.Parse(cfg.BaseURL)
 	if err != nil {
 		return nil, err
@@ -25,12 +25,12 @@ func newRouter(cfg *config) (*Router, error) {
 	r := Router{
 		Engine:    gin.Default(),
 		baseURL:   u.String(),
-		shortener: shorty.NewShortener(),
+		shortener: shortener,
 	}
 
 	v1 := r.Group(cfg.Stage + "/v1")
 	v1.POST("/shorten", r.handleShorten)
-	r.GET("/:key", r.handleResolve)
+	r.GET(cfg.Stage+"/:key", r.handleResolve)
 
 	return &r, nil
 }
@@ -46,19 +46,20 @@ func (r *Router) handleShorten(c *gin.Context) {
 		return
 	}
 
-	key := r.shortener.Shorten(u.URL)
+	key := r.shortener.Shorten(c.Request.Context(), u.URL)
 	url := fmt.Sprintf("%s/%s", r.baseURL, key)
 	c.JSON(http.StatusOK, gin.H{"url": url})
 }
 
 func (r *Router) handleResolve(c *gin.Context) {
+	log.Info("handleResolve", "key", c.Param("key"))
 	key := c.Param("key")
 	if key == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing required parameter: key"})
 		return
 	}
 
-	url := r.shortener.Resolve(key)
+	url := r.shortener.Resolve(c.Request.Context(), key)
 	if url == "" {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
 		return
